@@ -116,3 +116,4 @@ Now pressing Ctrl+R will launch gistory instead of the default reverse search!
 ## License
 
 MIT
+
