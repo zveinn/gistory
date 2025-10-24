@@ -7,9 +7,7 @@ A fast, interactive replacement for bash's Ctrl+R reverse history search, built 
 
 - **Fuzzy search**: Type anywhere in the command to find matches
 - **Interactive TUI**: Real-time filtering as you type
-- **Keyboard navigation**: Arrow keys, Vim-style keys (Ctrl+N/Ctrl+P)
 - **Deduplication**: Shows only unique commands (most recent first)
-- **Fast**: Written in Go for optimal performance
 
 ## Installation
 
