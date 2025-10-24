@@ -64,6 +64,7 @@ To replace Ctrl+R with gistory, add this to your `~/.bashrc`:
 bind -x '"\C-r": __gistory'
 
 __gistory() {
+    history -w
     local selected
     selected=$(gistory)
     if [ -n "$selected" ]; then
@@ -80,6 +81,7 @@ __gistory() {
 bind -x '"\C-r": __gistory'
 
 __gistory() {
+    history -w
     local selected
     selected=$(gistory)
     if [ -n "$selected" ]; then
