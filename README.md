@@ -12,6 +12,17 @@ A fast, interactive replacement for bash's Ctrl+R reverse history search, built 
 
 ## Installation
 
+### Download pre-built binary
+
+1. Go to the [releases page](https://github.com/zveinn/gistory/releases/latest)
+2. Download the archive for your OS and architecture
+3. Extract and install:
+
+```bash
+tar xzf gistory_*.tar.gz
+sudo mv gistory /usr/local/bin/
+```
+
 ### Build from source
 
 ```bash
