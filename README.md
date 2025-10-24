@@ -1,6 +1,7 @@
 # Gistory - Interactive Bash History Search
-
 A fast, interactive replacement for bash's Ctrl+R reverse history search, built with Go and tview.
+
+<img width="1678" height="624" alt="image" src="https://github.com/user-attachments/assets/44bf2084-5670-43eb-9196-d09fce3cbbf8" />
 
 ## Features
 
