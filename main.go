@@ -204,20 +204,46 @@ func (ha *HistoryApp) buildUI() {
 }
 
 func (ha *HistoryApp) filterHistory(query string) {
-	if query == "" {
-		ha.filtered = ha.history
-	} else {
-		ha.filtered = make([]string, 0)
-		lowerQuery := strings.ToLower(query)
+	ha.filtered = filterAndSortCommands(ha.history, query)
+	ha.updateList()
+}
 
-		for _, cmd := range ha.history {
-			if fuzzyMatch(strings.ToLower(cmd), lowerQuery) {
-				ha.filtered = append(ha.filtered, cmd)
-			}
+// filterAndSortCommands filters and sorts commands based on match type
+// Returns commands sorted by: prefix matches, substring matches, fuzzy matches
+func filterAndSortCommands(history []string, query string) []string {
+	if query == "" {
+		return history
+	}
+
+	// Three categories for sorting
+	prefixMatches := make([]string, 0)
+	substringMatches := make([]string, 0)
+	fuzzyMatches := make([]string, 0)
+
+	lowerQuery := strings.ToLower(query)
+
+	for _, cmd := range history {
+		lowerCmd := strings.ToLower(cmd)
+
+		// Check if it's a prefix match (starts with query)
+		if strings.HasPrefix(lowerCmd, lowerQuery) {
+			prefixMatches = append(prefixMatches, cmd)
+		} else if strings.Contains(lowerCmd, lowerQuery) {
+			// Contains but doesn't start with query
+			substringMatches = append(substringMatches, cmd)
+		} else if fuzzyMatch(lowerCmd, lowerQuery) {
+			// Fuzzy match but not a substring match
+			fuzzyMatches = append(fuzzyMatches, cmd)
 		}
 	}
 
-	ha.updateList()
+	// Combine in priority order: prefix, substring, fuzzy
+	result := make([]string, 0, len(prefixMatches)+len(substringMatches)+len(fuzzyMatches))
+	result = append(result, prefixMatches...)
+	result = append(result, substringMatches...)
+	result = append(result, fuzzyMatches...)
+
+	return result
 }
 
 func fuzzyMatch(text, pattern string) bool {
