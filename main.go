@@ -17,8 +17,6 @@ type HistoryApp struct {
 	list        *tview.List
 	history     []string
 	filtered    []string
-	statusBar   *tview.TextView
-	header      *tview.TextView
 	searchQuery string
 }
 
@@ -92,7 +90,6 @@ func deduplicateHistory(history []string) []string {
 }
 
 func (ha *HistoryApp) buildUI() {
-	// Create input field
 	inputBox := tview.NewInputField().
 		SetLabel("> ").
 		SetFieldWidth(0).
@@ -101,10 +98,9 @@ func (ha *HistoryApp) buildUI() {
 			ha.filterHistory(text)
 		})
 
-	// Force colors - use RGB to ensure visibility
-	inputBox.SetLabelColor(tcell.NewRGBColor(0, 255, 0)). // Green label
-		SetFieldTextColor(tcell.NewRGBColor(255, 255, 255)). // White text
-		SetFieldBackgroundColor(tcell.NewRGBColor(0, 0, 0)) // Black background
+	inputBox.SetLabelColor(tcell.NewRGBColor(150, 100, 200)).
+		SetFieldTextColor(tcell.NewRGBColor(255, 255, 255)).
+		SetFieldBackgroundColor(tcell.ColorDefault)
 
 	ha.inputField = inputBox
 
@@ -115,20 +111,19 @@ func (ha *HistoryApp) buildUI() {
 
 	ha.list.SetMainTextColor(tcell.ColorWhite).
 		SetSelectedTextColor(tcell.ColorWhite).
-		SetSelectedBackgroundColor(tcell.NewRGBColor(0, 0, 139)). // Dark blue
-		SetShortcutColor(tcell.ColorGreen)
+		SetSelectedBackgroundColor(tcell.NewRGBColor(30, 30, 30)).
+		SetShortcutColor(tcell.NewRGBColor(150, 100, 200))
 
-	// Initial population
+	ha.list.SetBackgroundColor(tcell.ColorDefault)
+
 	ha.updateList()
 
-	// Handle input field keys
 	ha.inputField.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyEscape:
 			ha.app.Stop()
 			return nil
 		case tcell.KeyDown, tcell.KeyCtrlN:
-			// Move to second item when first pressing down
 			if len(ha.filtered) > 1 {
 				ha.list.SetCurrentItem(1)
 			}
@@ -146,20 +141,17 @@ func (ha *HistoryApp) buildUI() {
 		return event
 	})
 
-	// Handle list keys
 	ha.list.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyEscape:
 			ha.app.Stop()
 			return nil
 		case tcell.KeyRune:
-			// Any character, add it to input and go back
 			currentText := ha.inputField.GetText()
 			ha.inputField.SetText(currentText + string(event.Rune()))
 			ha.app.SetFocus(ha.inputField)
 			return nil
 		case tcell.KeyBackspace, tcell.KeyBackspace2:
-			// Remove last character from input
 			currentText := ha.inputField.GetText()
 			if len(currentText) > 0 {
 				ha.inputField.SetText(currentText[:len(currentText)-1])
@@ -170,12 +162,10 @@ func (ha *HistoryApp) buildUI() {
 		return event
 	})
 
-	// Handle list selection
 	ha.list.SetSelectedFunc(func(index int, mainText string, secondaryText string, shortcut rune) {
 		ha.selectCommand(index)
 	})
 
-	// Create list container with minimal border (1 char padding)
 	listContainer := tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(ha.list, 0, 1, false)
@@ -187,13 +177,11 @@ func (ha *HistoryApp) buildUI() {
 		SetDirection(tview.FlexRow).
 		AddItem(listFrame, 0, 1, false)
 
-	// Create main layout
 	mainContent := tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(ha.inputField, 1, 0, true).
 		AddItem(listWithBorder, 0, 1, false)
 
-	// Add padding to the sides (1 char only)
 	flex := tview.NewFlex().
 		AddItem(nil, 1, 0, false).
 		AddItem(mainContent, 0, 1, true).
@@ -208,14 +196,11 @@ func (ha *HistoryApp) filterHistory(query string) {
 	ha.updateList()
 }
 
-// filterAndSortCommands filters and sorts commands based on match type
-// Returns commands sorted by: prefix matches, substring matches, fuzzy matches
 func filterAndSortCommands(history []string, query string) []string {
 	if query == "" {
 		return history
 	}
 
-	// Three categories for sorting
 	prefixMatches := make([]string, 0)
 	substringMatches := make([]string, 0)
 	fuzzyMatches := make([]string, 0)
@@ -225,19 +210,15 @@ func filterAndSortCommands(history []string, query string) []string {
 	for _, cmd := range history {
 		lowerCmd := strings.ToLower(cmd)
 
-		// Check if it's a prefix match (starts with query)
 		if strings.HasPrefix(lowerCmd, lowerQuery) {
 			prefixMatches = append(prefixMatches, cmd)
 		} else if strings.Contains(lowerCmd, lowerQuery) {
-			// Contains but doesn't start with query
 			substringMatches = append(substringMatches, cmd)
 		} else if fuzzyMatch(lowerCmd, lowerQuery) {
-			// Fuzzy match but not a substring match
 			fuzzyMatches = append(fuzzyMatches, cmd)
 		}
 	}
 
-	// Combine in priority order: prefix, substring, fuzzy
 	result := make([]string, 0, len(prefixMatches)+len(substringMatches)+len(fuzzyMatches))
 	result = append(result, prefixMatches...)
 	result = append(result, substringMatches...)
@@ -247,7 +228,6 @@ func filterAndSortCommands(history []string, query string) []string {
 }
 
 func fuzzyMatch(text, pattern string) bool {
-	// Simple fuzzy matching: all characters in pattern must appear in order
 	patternIdx := 0
 	for i := 0; i < len(text) && patternIdx < len(pattern); i++ {
 		if text[i] == pattern[patternIdx] {
@@ -260,26 +240,20 @@ func fuzzyMatch(text, pattern string) bool {
 func (ha *HistoryApp) updateList() {
 	ha.list.Clear()
 
-	maxItems := 100
-	if len(ha.filtered) < maxItems {
-		maxItems = len(ha.filtered)
-	}
+	maxItems := min(len(ha.filtered), 100)
 
-	for i := 0; i < maxItems; i++ {
+	for i := range maxItems {
 		cmd := ha.filtered[i]
 		displayCmd := cmd
 
-		// Highlight matching characters if there's a search query
 		if ha.searchQuery != "" {
 			displayCmd = highlightMatches(cmd, ha.searchQuery)
 		}
 
-		// Truncate long commands
 		if len(cmd) > 200 {
 			displayCmd = displayCmd[:200] + "[grey]...[white]"
 		}
 
-		// Add 2 char padding to align with search input
 		ha.list.AddItem("  "+displayCmd, "", 0, nil)
 	}
 }
@@ -297,8 +271,7 @@ func highlightMatches(text, pattern string) string {
 
 	for i := 0; i < len(text); i++ {
 		if patternIdx < len(lowerPattern) && lowerText[i] == lowerPattern[patternIdx] {
-			// Highlight matched character in green
-			result.WriteString("[green::b]")
+			result.WriteString("[#9664c8::b]")
 			result.WriteByte(text[i])
 			result.WriteString("[white::-]")
 			patternIdx++
@@ -308,23 +281,6 @@ func highlightMatches(text, pattern string) string {
 	}
 
 	return result.String()
-}
-
-func (ha *HistoryApp) updateStatus() {
-	total := len(ha.history)
-	shown := len(ha.filtered)
-
-	var statusMsg string
-	if shown == 0 {
-		statusMsg = "[red]✗ No matches found"
-	} else if shown == total {
-		statusMsg = fmt.Sprintf("[white]%d commands", total)
-	} else {
-		statusMsg = fmt.Sprintf("[white]%d[grey]/[white]%d commands", shown, total)
-	}
-
-	status := fmt.Sprintf("\n[::b]%s  [grey]│  [green]↵[white] select  [grey]│  [green]↑↓[white] navigate  [grey]│  [green]Esc[white] cancel", statusMsg)
-	ha.statusBar.SetText(status)
 }
 
 func (ha *HistoryApp) selectCommand(index int) {
