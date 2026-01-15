@@ -62,7 +62,6 @@ To replace Ctrl+R with gistory, add this to your `~/.bashrc`:
 
 ```bash
 # Bind Ctrl+R to gistory - auto-execute selected command
-[[ $- == *i* ]] && bind '"\C-r": __gistory'
 __gistory() {
     history -w
     local selected
@@ -72,13 +71,14 @@ __gistory() {
         eval "$selected"         # Execute immediately
     fi
 }
+
+[[ $- == *i* ]] && bind -x '"\C-r": __gistory'
 ```
 
 ### Option 2: Insert into command line (edit before running)
 
 ```bash
 # Bind Ctrl+R to gistory - insert into readline buffer
-[[ $- == *i* ]] && bind '"\C-r": __gistory'
 
 __gistory() {
     history -w
@@ -89,6 +89,8 @@ __gistory() {
         READLINE_POINT=${#READLINE_LINE}
     fi
 }
+
+[[ $- == *i* ]] && bind -x '"\C-r": __gistory'
 ```
 
 After adding this, reload your bashrc:
