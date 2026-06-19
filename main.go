@@ -355,7 +355,7 @@ func (ha *HistoryApp) buildUI() {
 
 	shortcutsView := tview.NewTextView().
 		SetDynamicColors(true)
-	shortcutsView.SetText("  [::b][#60a5fa]Esc[-] [::d]exit[-]  [::d]│[-]  [::b][#60a5fa]↑↓ ^P^N[-] [::d]nav[-]  [::d]│[-]  [::b][#60a5fa]←[-] [::d]combine[-]  [::d]│[-]  [::b][#60a5fa]→[-] [::d]bookmark[-]  [::d]│[-]  [::b][#60a5fa]^B[-] [::d]bookmarks[-]  [::d]│[-]  [::b][#60a5fa]^BS[-] [::d]remove[-]  [::d]│[-]  [::b][#60a5fa]Enter[-] [::d]run[-]  ")
+	shortcutsView.SetText("  [::b][#60a5fa]Esc[-] [::d]exit[-]  [::d]│[-]  [::b][#60a5fa]↑↓[-] [::d]nav[-]  [::d]│[-]  [::b][#60a5fa]←[-] [::d]combine[-]  [::d]│[-]  [::b][#60a5fa]→[-] [::d]bookmark[-]  [::d]│[-]  [::b][#60a5fa]^B[-] [::d]bookmarks[-]  [::d]│[-]  [::b][#60a5fa]^BS[-] [::d]remove[-]  [::d]│[-]  [::b][#60a5fa]Enter[-] [::d]run[-]  ")
 
 	titleView := tview.NewTextView().
 		SetDynamicColors(true).
@@ -367,7 +367,7 @@ func (ha *HistoryApp) buildUI() {
 	ha.shortcutsView = shortcutsView
 	ha.titleView = titleView
 
-	header.AddItem(shortcutsView, 65, 0, false)  // left side shortcuts, fixed width
+	header.AddItem(shortcutsView, 60, 0, false)  // left side shortcuts, fixed width
 	header.AddItem(titleView, 0, 1, false)
 	header.AddItem(nil, 0, 1, false)
 	header.AddItem(countView, 16, 0, false)
@@ -386,11 +386,10 @@ func (ha *HistoryApp) buildUI() {
 	// Populate list + set initial count in top bar
 	ha.updateList()
 
-	// Small side margins
 	root := tview.NewFlex().
-		AddItem(nil, 2, 0, false).
+		AddItem(nil, 0, 0, false).
 		AddItem(ha.mainContent, 0, 1, true).
-		AddItem(nil, 2, 0, false)
+		AddItem(nil, 0, 0, false)
 
 	ha.updateTitle()
 
