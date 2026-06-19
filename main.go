@@ -20,6 +20,7 @@ type HistoryApp struct {
 	countView        *tview.TextView
 	titleView        *tview.TextView
 	combinedView     *tview.TextView
+	shortcutsView    *tview.TextView
 	mainContent      *tview.Flex
 	history          []string
 	bookmarks        []string
@@ -212,16 +213,16 @@ func (ha *HistoryApp) buildUI() {
 	accent := tcell.NewRGBColor(96, 165, 250)
 
 	inputBox := tview.NewInputField().
-		SetLabel(" [#60a5fa::b]$[-] ").
+		SetLabel("  ").
 		SetFieldWidth(0).
 		SetChangedFunc(func(text string) {
 			ha.searchQuery = text
 			ha.filterHistory(text)
 		})
 
-	inputBox.SetLabelColor(accent).
+	inputBox.SetLabelColor(tcell.ColorDefault).
 		SetFieldTextColor(tcell.NewRGBColor(255, 255, 255)).
-		SetFieldBackgroundColor(tcell.ColorDefault)
+		SetFieldBackgroundColor(tcell.NewRGBColor(35, 40, 48))
 
 	ha.inputField = inputBox
 
@@ -259,6 +260,9 @@ func (ha *HistoryApp) buildUI() {
 		case tcell.KeyCtrlB:
 			ha.showingBookmarks = !ha.showingBookmarks
 			ha.filterHistory(ha.searchQuery)
+			return nil
+		case tcell.KeyPgUp, tcell.KeyPgDn:
+			// Disable page up/down navigation
 			return nil
 		case tcell.KeyBackspace, tcell.KeyBackspace2:
 			// normal backspace (or ctrl variants) - ctrl+backspace is handled at app level
@@ -320,6 +324,9 @@ func (ha *HistoryApp) buildUI() {
 			ha.showingBookmarks = !ha.showingBookmarks
 			ha.filterHistory(ha.searchQuery)
 			return nil
+		case tcell.KeyPgUp, tcell.KeyPgDn:
+			// Disable page up/down navigation as requested
+			return nil
 		case tcell.KeyRune:
 			currentText := ha.inputField.GetText()
 			ha.inputField.SetText(currentText + string(event.Rune()))
@@ -345,16 +352,23 @@ func (ha *HistoryApp) buildUI() {
 	// Top bar: left title + right live result count (no border)
 	header := tview.NewFlex().SetDirection(tview.FlexColumn)
 	header.SetBackgroundColor(tcell.NewRGBColor(30, 38, 52))
+
+	shortcutsView := tview.NewTextView().
+		SetDynamicColors(true)
+	shortcutsView.SetText("  [::b][#60a5fa]Esc[-] [::d]exit[-]  [::d]│[-]  [::b][#60a5fa]↑↓ ^P^N[-] [::d]nav[-]  [::d]│[-]  [::b][#60a5fa]←[-] [::d]combine[-]  [::d]│[-]  [::b][#60a5fa]→[-] [::d]bookmark[-]  [::d]│[-]  [::b][#60a5fa]^B[-] [::d]bookmarks[-]  [::d]│[-]  [::b][#60a5fa]^BS[-] [::d]remove[-]  [::d]│[-]  [::b][#60a5fa]Enter[-] [::d]run[-]  ")
+
 	titleView := tview.NewTextView().
 		SetDynamicColors(true).
-		SetText(" [#60a5fa::b]$[-] [#60a5fa::b]gistory[-]")
+		SetText("")
 	countView := tview.NewTextView().
 		SetDynamicColors(true).
 		SetTextAlign(tview.AlignRight)
 
+	ha.shortcutsView = shortcutsView
 	ha.titleView = titleView
 
-	header.AddItem(titleView, 0, 0, false)
+	header.AddItem(shortcutsView, 65, 0, false)  // left side shortcuts, fixed width
+	header.AddItem(titleView, 0, 1, false)
 	header.AddItem(nil, 0, 1, false)
 	header.AddItem(countView, 16, 0, false)
 
@@ -426,11 +440,11 @@ func (ha *HistoryApp) updateTitle() {
 	if ha.titleView == nil {
 		return
 	}
-	title := " [#60a5fa::b]$[-] [#60a5fa::b]gistory[-]"
 	if ha.showingBookmarks {
-		title = " [#60a5fa::b]$[-] [#60a5fa::b]gistory[-] [#60a5fa::b][bookmarks][-]"
+		ha.titleView.SetText("  [#60a5fa::b][bookmarks][-]")
+	} else {
+		ha.titleView.SetText("")
 	}
-	ha.titleView.SetText(title)
 }
 
 func (ha *HistoryApp) rebuildMainContent() {
@@ -443,7 +457,7 @@ func (ha *HistoryApp) rebuildMainContent() {
 	ha.mainContent.AddItem(ha.inputField, 1, 0, false)
 
 	if len(ha.combinedCommands) > 0 {
-		combinedText := strings.Join(ha.combinedCommands, " ; ")
+		combinedText := "  " + strings.Join(ha.combinedCommands, " ; ")
 		// White font, no dimming. Background is already set on the view.
 		ha.combinedView.SetText("[white]" + combinedText + "[-]")
 		ha.mainContent.AddItem(ha.combinedView, 1, 0, false)
