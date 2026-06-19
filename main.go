@@ -355,7 +355,7 @@ func (ha *HistoryApp) buildUI() {
 
 	shortcutsView := tview.NewTextView().
 		SetDynamicColors(true)
-	shortcutsView.SetText("  [#60a5fa::d]Esc[-] [::d]exit[-]  [::d]│[-]  [#60a5fa::b]↑↓[-] [::d]nav[-]  [::d]│[-]  [#60a5fa::b]←[-] [::d]combine[-]  [::d]│[-]  [#60a5fa::b]→[-] [::d]bookmark[-]  ")
+	shortcutsView.SetText("  [#60a5fa::d]Esc[-] [::d]exit[-]  [::d]│[-]  [#60a5fa::b]↑↓[-] [::d]nav[-]  [::d]│[-]  [#60a5fa::b]←[-] [::d]combine[-]  [::d]│[-]  [#60a5fa::b]→[-] [::d]bookmark[-]  [::d]│[-]  [#60a5fa::b]Ctrl+B[-] [::d]bookmarks[-]  ")
 
 	titleView := tview.NewTextView().
 		SetDynamicColors(true).
@@ -367,7 +367,7 @@ func (ha *HistoryApp) buildUI() {
 	ha.shortcutsView = shortcutsView
 	ha.titleView = titleView
 
-	header.AddItem(shortcutsView, 60, 0, false)  // left side shortcuts, fixed width
+	header.AddItem(shortcutsView, 75, 0, false)  // left side shortcuts, fixed width
 	header.AddItem(titleView, 0, 1, false)
 	header.AddItem(nil, 0, 1, false)
 	header.AddItem(countView, 16, 0, false)
