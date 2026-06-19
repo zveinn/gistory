@@ -26,6 +26,7 @@ type HistoryApp struct {
 	bookmarkSet      map[string]bool
 	showingBookmarks bool
 	combinedCommands []string
+	combinedChanged  bool
 	filtered         []string
 	searchQuery      string
 }
@@ -280,11 +281,11 @@ func (ha *HistoryApp) buildUI() {
 			if idx := ha.list.GetCurrentItem(); idx >= 0 && idx < len(ha.filtered) {
 				cmd := ha.filtered[idx]
 				ha.combinedCommands = append(ha.combinedCommands, cmd)
-				ha.updateCombinedBar()
-				// Use ForceDraw because we are inside a direct event handler (InputCapture).
-				// QueueUpdate* would deadlock (it blocks waiting for the event loop).
-				// See tview source: ForceDraw is documented as safe during direct event handling.
-				// We mutate only leaf content (TextView text), never the parent Flex children after init.
+				ha.combinedChanged = true
+				// ForceDraw is explicitly safe to call during direct event handling
+				// (per tview docs). It runs BeforeDraw (the safe hook for structural
+				// layout changes like conditionally adding the combined bar) then the
+				// actual draw. This prevents freezing/reentrancy.
 				ha.app.ForceDraw()
 			}
 			return nil
@@ -353,23 +354,12 @@ func (ha *HistoryApp) buildUI() {
 
 	ha.header = header
 
-	// Create combined bar (always present in layout; text shown only when active).
-	// IMPORTANT: tview does not like live structural changes (Clear + AddItem on
-	// a Flex that is part of the active tree) from within InputCapture / event
-	// handlers. We set up the full hierarchy once here and only ever mutate
-	// the leaf TextView's content afterwards. See ForceDraw comment in tview
-	// application.go.
 	ha.combinedView = tview.NewTextView().
 		SetDynamicColors(true)
 	ha.combinedView.SetBackgroundColor(tcell.NewRGBColor(35, 40, 48))
 
-	// Main vertical layout is fixed at startup (header + input + combined bar + list)
-	// This avoids live structural changes to the Flex which tview is sensitive to.
 	ha.mainContent = tview.NewFlex().SetDirection(tview.FlexRow)
-	ha.mainContent.AddItem(ha.header, 1, 0, false)
-	ha.mainContent.AddItem(ha.inputField, 1, 0, false)
-	ha.mainContent.AddItem(ha.combinedView, 1, 0, false)
-	ha.mainContent.AddItem(ha.list, 0, 1, false)
+	ha.rebuildMainContent()
 
 	ha.countView = countView
 
@@ -386,6 +376,17 @@ func (ha *HistoryApp) buildUI() {
 
 	ha.app.SetRoot(root, true)
 	ha.app.SetFocus(ha.inputField)
+
+	// Use BeforeDraw to safely perform structural layout changes (e.g. adding/removing
+	// the combined bar) right before rendering. This avoids reentrancy issues when
+	// triggered from InputCapture handlers.
+	ha.app.SetBeforeDrawFunc(func(screen tcell.Screen) bool {
+		if ha.combinedChanged {
+			ha.rebuildMainContent()
+			ha.combinedChanged = false
+		}
+		return false
+	})
 }
 
 func (ha *HistoryApp) filterHistory(query string) {
@@ -409,16 +410,23 @@ func (ha *HistoryApp) updateTitle() {
 	ha.titleView.SetText(title)
 }
 
-func (ha *HistoryApp) updateCombinedBar() {
-	if ha.combinedView == nil {
+func (ha *HistoryApp) rebuildMainContent() {
+	if ha.mainContent == nil {
 		return
 	}
-	if len(ha.combinedCommands) == 0 {
-		ha.combinedView.SetText("")
-		return
+
+	ha.mainContent.Clear()
+	ha.mainContent.AddItem(ha.header, 1, 0, false)
+	ha.mainContent.AddItem(ha.inputField, 1, 0, false)
+
+	if len(ha.combinedCommands) > 0 {
+		combinedText := strings.Join(ha.combinedCommands, " ; ")
+		// White font, no dimming. Background is already set on the view.
+		ha.combinedView.SetText("[white]" + combinedText + "[-]")
+		ha.mainContent.AddItem(ha.combinedView, 1, 0, false)
 	}
-	combinedText := strings.Join(ha.combinedCommands, " ; ")
-	ha.combinedView.SetText("[::d]→[-] [#60a5fa]" + combinedText + "[-]")
+
+	ha.mainContent.AddItem(ha.list, 0, 1, false)
 }
 
 func (ha *HistoryApp) toggleBookmark(cmd string) {
