@@ -15,10 +15,14 @@ type HistoryApp struct {
 	app         *tview.Application
 	inputField  *tview.InputField
 	list        *tview.List
-	countView   *tview.TextView
-	history     []string
-	filtered    []string
-	searchQuery string
+	countView        *tview.TextView
+	titleView        *tview.TextView
+	history          []string
+	bookmarks        []string
+	bookmarkSet      map[string]bool
+	showingBookmarks bool
+	filtered         []string
+	searchQuery      string
 }
 
 func main() {
@@ -33,10 +37,21 @@ func main() {
 		os.Exit(1)
 	}
 
+	bookmarks, err := loadBookmarks()
+	if err != nil {
+		bookmarks = []string{}
+	}
+
 	ha := &HistoryApp{
-		app:      tview.NewApplication(),
-		history:  commands,
-		filtered: commands,
+		app:         tview.NewApplication(),
+		history:     commands,
+		bookmarks:   bookmarks,
+		bookmarkSet: make(map[string]bool, len(bookmarks)),
+		filtered:    commands,
+	}
+
+	for _, b := range bookmarks {
+		ha.bookmarkSet[b] = true
 	}
 
 	ha.buildUI()
@@ -160,6 +175,25 @@ func loadCommands() ([]string, error) {
 	return result, nil
 }
 
+func loadBookmarks() ([]string, error) {
+	home := os.Getenv("HOME")
+	path := filepath.Join(home, ".gistory", "bookmarks")
+	bookmarks, err := readCache(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
+		return nil, err
+	}
+	return bookmarks, nil
+}
+
+func saveBookmarks(bookmarks []string) error {
+	home := os.Getenv("HOME")
+	path := filepath.Join(home, ".gistory", "bookmarks")
+	return writeCache(path, bookmarks)
+}
+
 func (ha *HistoryApp) buildUI() {
 	accent := tcell.NewRGBColor(96, 165, 250)
 
@@ -208,6 +242,10 @@ func (ha *HistoryApp) buildUI() {
 				ha.selectCommand(0)
 			}
 			return nil
+		case tcell.KeyCtrlB:
+			ha.showingBookmarks = !ha.showingBookmarks
+			ha.filterHistory(ha.searchQuery)
+			return nil
 		}
 		return event
 	})
@@ -216,6 +254,33 @@ func (ha *HistoryApp) buildUI() {
 		switch event.Key() {
 		case tcell.KeyEscape:
 			ha.app.Stop()
+			return nil
+		case tcell.KeyRight:
+			idx := ha.list.GetCurrentItem()
+			if idx >= 0 && idx < len(ha.filtered) {
+				cmd := ha.filtered[idx]
+				ha.toggleBookmark(cmd)
+				ha.filterHistory(ha.searchQuery)
+
+				// Try to keep the cursor on the same command (or same position if it was removed)
+				if len(ha.filtered) > 0 {
+					newIdx := idx
+					for i, c := range ha.filtered {
+						if c == cmd {
+							newIdx = i
+							break
+						}
+					}
+					if newIdx >= len(ha.filtered) {
+						newIdx = len(ha.filtered) - 1
+					}
+					ha.list.SetCurrentItem(newIdx)
+				}
+			}
+			return nil
+		case tcell.KeyCtrlB:
+			ha.showingBookmarks = !ha.showingBookmarks
+			ha.filterHistory(ha.searchQuery)
 			return nil
 		case tcell.KeyRune:
 			currentText := ha.inputField.GetText()
@@ -247,6 +312,8 @@ func (ha *HistoryApp) buildUI() {
 		SetDynamicColors(true).
 		SetTextAlign(tview.AlignRight)
 
+	ha.titleView = titleView
+
 	header.AddItem(titleView, 0, 0, false)
 	header.AddItem(nil, 0, 1, false)
 	header.AddItem(countView, 16, 0, false)
@@ -268,13 +335,54 @@ func (ha *HistoryApp) buildUI() {
 		AddItem(content, 0, 1, true).
 		AddItem(nil, 2, 0, false)
 
+	ha.updateTitle()
+
 	ha.app.SetRoot(root, true)
 	ha.app.SetFocus(ha.inputField)
 }
 
 func (ha *HistoryApp) filterHistory(query string) {
-	ha.filtered = filterAndSortCommands(ha.history, query)
+	source := ha.history
+	if ha.showingBookmarks {
+		source = ha.bookmarks
+	}
+	ha.filtered = filterAndSortCommands(source, query)
 	ha.updateList()
+	ha.updateTitle()
+}
+
+func (ha *HistoryApp) updateTitle() {
+	if ha.titleView == nil {
+		return
+	}
+	title := " [#60a5fa::b]$[-] [#60a5fa::b]gistory[-]"
+	if ha.showingBookmarks {
+		title = " [#60a5fa::b]$[-] [#60a5fa::b]gistory[-] [#60a5fa::b][bookmarks][-]"
+	}
+	ha.titleView.SetText(title)
+}
+
+func (ha *HistoryApp) toggleBookmark(cmd string) {
+	if ha.bookmarkSet == nil {
+		ha.bookmarkSet = make(map[string]bool)
+	}
+
+	if ha.bookmarkSet[cmd] {
+		delete(ha.bookmarkSet, cmd)
+		// remove from slice while preserving order
+		newBookmarks := make([]string, 0, len(ha.bookmarks))
+		for _, b := range ha.bookmarks {
+			if b != cmd {
+				newBookmarks = append(newBookmarks, b)
+			}
+		}
+		ha.bookmarks = newBookmarks
+	} else {
+		ha.bookmarkSet[cmd] = true
+		ha.bookmarks = append(ha.bookmarks, cmd)
+	}
+
+	_ = saveBookmarks(ha.bookmarks)
 }
 
 func filterAndSortCommands(history []string, query string) []string {
@@ -327,6 +435,11 @@ func (ha *HistoryApp) updateList() {
 		cmd := ha.filtered[i]
 		displayCmd := cmd
 
+		prefix := "  "
+		if ha.bookmarkSet != nil && ha.bookmarkSet[cmd] {
+			prefix = "[yellow]★[-] "
+		}
+
 		if ha.searchQuery != "" {
 			displayCmd = highlightMatches(cmd, ha.searchQuery)
 		}
@@ -335,7 +448,7 @@ func (ha *HistoryApp) updateList() {
 			displayCmd = displayCmd[:200] + "[gray]…[-]"
 		}
 
-		ha.list.AddItem("  "+displayCmd, "", 0, nil)
+		ha.list.AddItem(prefix+displayCmd, "", 0, nil)
 	}
 
 	// Update top bar result count (purely visual)
