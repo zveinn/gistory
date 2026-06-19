@@ -260,6 +260,10 @@ func (ha *HistoryApp) buildUI() {
 			ha.showingBookmarks = !ha.showingBookmarks
 			ha.filterHistory(ha.searchQuery)
 			return nil
+		case tcell.KeyBackspace, tcell.KeyBackspace2:
+			// normal backspace (or ctrl variants) - ctrl+backspace is handled at app level
+			// to prioritize removing from combined over editing the search text
+			return event
 		}
 		return event
 	})
@@ -322,6 +326,8 @@ func (ha *HistoryApp) buildUI() {
 			ha.app.SetFocus(ha.inputField)
 			return nil
 		case tcell.KeyBackspace, tcell.KeyBackspace2:
+			// normal backspace: send to input field
+			// (Ctrl+Backspace for combined is handled by app-level input capture)
 			currentText := ha.inputField.GetText()
 			if len(currentText) > 0 {
 				ha.inputField.SetText(currentText[:len(currentText)-1])
@@ -376,6 +382,23 @@ func (ha *HistoryApp) buildUI() {
 
 	ha.app.SetRoot(root, true)
 	ha.app.SetFocus(ha.inputField)
+
+	// Global input capture to handle Ctrl+Backspace for removing combined commands,
+	// even when the input search bar has focus. This prevents the search bar from
+	// consuming the key for editing the query text.
+	ha.app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyCtrlH ||
+			((event.Key() == tcell.KeyBackspace || event.Key() == tcell.KeyBackspace2) &&
+				event.Modifiers()&tcell.ModCtrl != 0) {
+			if len(ha.combinedCommands) > 0 {
+				ha.combinedCommands = ha.combinedCommands[:len(ha.combinedCommands)-1]
+				ha.combinedChanged = true
+				ha.app.ForceDraw()
+				return nil
+			}
+		}
+		return event
+	})
 
 	// Use BeforeDraw to safely perform structural layout changes (e.g. adding/removing
 	// the combined bar) right before rendering. This avoids reentrancy issues when
