@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,20 +13,27 @@ import (
 )
 
 type HistoryApp struct {
-	app         *tview.Application
-	inputField  *tview.InputField
-	list        *tview.List
+	app              *tview.Application
+	inputField       *tview.InputField
+	list             *tview.List
+	header           *tview.Flex
 	countView        *tview.TextView
 	titleView        *tview.TextView
+	combinedView     *tview.TextView
+	mainContent      *tview.Flex
 	history          []string
 	bookmarks        []string
 	bookmarkSet      map[string]bool
 	showingBookmarks bool
+	combinedCommands []string
 	filtered         []string
 	searchQuery      string
 }
 
 func main() {
+	bookmarksFlag := flag.Bool("bookmarks", false, "start directly in the bookmarks list")
+	flag.Parse()
+
 	commands, err := loadCommands()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading commands: %v\n", err)
@@ -52,6 +60,11 @@ func main() {
 
 	for _, b := range bookmarks {
 		ha.bookmarkSet[b] = true
+	}
+
+	if *bookmarksFlag {
+		ha.showingBookmarks = true
+		ha.filtered = append([]string(nil), ha.bookmarks...)
 	}
 
 	ha.buildUI()
@@ -255,6 +268,26 @@ func (ha *HistoryApp) buildUI() {
 		case tcell.KeyEscape:
 			ha.app.Stop()
 			return nil
+		case tcell.KeyEnter:
+			if len(ha.combinedCommands) > 0 {
+				combined := strings.Join(ha.combinedCommands, " ; ")
+				ha.app.Stop()
+				fmt.Print(combined)
+				return nil
+			}
+			// fall through to selected func for normal case
+		case tcell.KeyLeft:
+			if idx := ha.list.GetCurrentItem(); idx >= 0 && idx < len(ha.filtered) {
+				cmd := ha.filtered[idx]
+				ha.combinedCommands = append(ha.combinedCommands, cmd)
+				ha.updateCombinedBar()
+				// Use ForceDraw because we are inside a direct event handler (InputCapture).
+				// QueueUpdate* would deadlock (it blocks waiting for the event loop).
+				// See tview source: ForceDraw is documented as safe during direct event handling.
+				// We mutate only leaf content (TextView text), never the parent Flex children after init.
+				ha.app.ForceDraw()
+			}
+			return nil
 		case tcell.KeyRight:
 			idx := ha.list.GetCurrentItem()
 			if idx >= 0 && idx < len(ha.filtered) {
@@ -318,11 +351,25 @@ func (ha *HistoryApp) buildUI() {
 	header.AddItem(nil, 0, 1, false)
 	header.AddItem(countView, 16, 0, false)
 
-	// Main vertical layout: top bar, input, results list
-	content := tview.NewFlex().SetDirection(tview.FlexRow)
-	content.AddItem(header, 1, 0, false)
-	content.AddItem(ha.inputField, 1, 0, true)
-	content.AddItem(ha.list, 0, 1, false)
+	ha.header = header
+
+	// Create combined bar (always present in layout; text shown only when active).
+	// IMPORTANT: tview does not like live structural changes (Clear + AddItem on
+	// a Flex that is part of the active tree) from within InputCapture / event
+	// handlers. We set up the full hierarchy once here and only ever mutate
+	// the leaf TextView's content afterwards. See ForceDraw comment in tview
+	// application.go.
+	ha.combinedView = tview.NewTextView().
+		SetDynamicColors(true)
+	ha.combinedView.SetBackgroundColor(tcell.NewRGBColor(35, 40, 48))
+
+	// Main vertical layout is fixed at startup (header + input + combined bar + list)
+	// This avoids live structural changes to the Flex which tview is sensitive to.
+	ha.mainContent = tview.NewFlex().SetDirection(tview.FlexRow)
+	ha.mainContent.AddItem(ha.header, 1, 0, false)
+	ha.mainContent.AddItem(ha.inputField, 1, 0, false)
+	ha.mainContent.AddItem(ha.combinedView, 1, 0, false)
+	ha.mainContent.AddItem(ha.list, 0, 1, false)
 
 	ha.countView = countView
 
@@ -332,7 +379,7 @@ func (ha *HistoryApp) buildUI() {
 	// Small side margins
 	root := tview.NewFlex().
 		AddItem(nil, 2, 0, false).
-		AddItem(content, 0, 1, true).
+		AddItem(ha.mainContent, 0, 1, true).
 		AddItem(nil, 2, 0, false)
 
 	ha.updateTitle()
@@ -360,6 +407,18 @@ func (ha *HistoryApp) updateTitle() {
 		title = " [#60a5fa::b]$[-] [#60a5fa::b]gistory[-] [#60a5fa::b][bookmarks][-]"
 	}
 	ha.titleView.SetText(title)
+}
+
+func (ha *HistoryApp) updateCombinedBar() {
+	if ha.combinedView == nil {
+		return
+	}
+	if len(ha.combinedCommands) == 0 {
+		ha.combinedView.SetText("")
+		return
+	}
+	combinedText := strings.Join(ha.combinedCommands, " ; ")
+	ha.combinedView.SetText("[::d]→[-] [#60a5fa]" + combinedText + "[-]")
 }
 
 func (ha *HistoryApp) toggleBookmark(cmd string) {
@@ -484,6 +543,12 @@ func highlightMatches(text, pattern string) string {
 }
 
 func (ha *HistoryApp) selectCommand(index int) {
+	if len(ha.combinedCommands) > 0 {
+		combined := strings.Join(ha.combinedCommands, " ; ")
+		ha.app.Stop()
+		fmt.Print(combined)
+		return
+	}
 	if index >= 0 && index < len(ha.filtered) {
 		ha.app.Stop()
 		fmt.Print(ha.filtered[index])
