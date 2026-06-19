@@ -15,31 +15,28 @@ type HistoryApp struct {
 	app         *tview.Application
 	inputField  *tview.InputField
 	list        *tview.List
+	countView   *tview.TextView
 	history     []string
 	filtered    []string
 	searchQuery string
 }
 
 func main() {
-	historyPath := filepath.Join(os.Getenv("HOME"), ".bash_history")
-	history, err := readHistory(historyPath)
+	commands, err := loadCommands()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading history: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error loading commands: %v\n", err)
 		os.Exit(1)
 	}
 
-	if len(history) == 0 {
-		fmt.Fprintf(os.Stderr, "No history found\n")
+	if len(commands) == 0 {
+		fmt.Fprintf(os.Stderr, "No commands found\n")
 		os.Exit(1)
 	}
-
-	// Deduplicate and reverse (most recent first)
-	history = deduplicateHistory(history)
 
 	ha := &HistoryApp{
 		app:      tview.NewApplication(),
-		history:  history,
-		filtered: history,
+		history:  commands,
+		filtered: commands,
 	}
 
 	ha.buildUI()
@@ -73,32 +70,108 @@ func readHistory(path string) ([]string, error) {
 	return lines, nil
 }
 
-func deduplicateHistory(history []string) []string {
-	// Keep most recent occurrence of each command
-	seen := make(map[string]bool)
-	result := make([]string, 0)
+func readCache(path string) ([]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
 
-	// Process from end to beginning (most recent first)
-	for i := len(history) - 1; i >= 0; i-- {
-		if !seen[history[i]] {
-			seen[history[i]] = true
-			result = append(result, history[i])
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" {
+			lines = append(lines, line)
 		}
 	}
 
-	return result
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	return lines, nil
+}
+
+func writeCache(path string, commands []string) error {
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	writer := bufio.NewWriter(file)
+	for _, cmd := range commands {
+		if _, err := fmt.Fprintln(writer, cmd); err != nil {
+			return err
+		}
+	}
+	return writer.Flush()
+}
+
+func loadCommands() ([]string, error) {
+	home := os.Getenv("HOME")
+	historyPath := filepath.Join(home, ".bash_history")
+	cacheDir := filepath.Join(home, ".gistory")
+	cachePath := filepath.Join(cacheDir, "commands")
+
+	// Ensure the cache directory exists
+	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+		return nil, fmt.Errorf("creating cache directory: %w", err)
+	}
+
+	bashHistory, err := readHistory(historyPath)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("reading bash history: %w", err)
+	}
+
+	cacheCommands, err := readCache(cachePath)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("reading cache: %w", err)
+	}
+
+	// Load both into a map to remove duplicates.
+	// Prefer most recent commands from bash history.
+	seen := make(map[string]bool)
+	result := make([]string, 0, len(bashHistory)+len(cacheCommands))
+
+	// Add commands from bash history (most recent first)
+	for i := len(bashHistory) - 1; i >= 0; i-- {
+		cmd := bashHistory[i]
+		if !seen[cmd] {
+			seen[cmd] = true
+			result = append(result, cmd)
+		}
+	}
+
+	// Add any unique commands from the cache
+	for _, cmd := range cacheCommands {
+		if !seen[cmd] {
+			seen[cmd] = true
+			result = append(result, cmd)
+		}
+	}
+
+	// Rewrite the cache with the new de-duped list
+	if err := writeCache(cachePath, result); err != nil {
+		return nil, fmt.Errorf("writing cache: %w", err)
+	}
+
+	return result, nil
 }
 
 func (ha *HistoryApp) buildUI() {
+	accent := tcell.NewRGBColor(96, 165, 250)
+
 	inputBox := tview.NewInputField().
-		SetLabel("> ").
+		SetLabel(" [#60a5fa::b]$[-] ").
 		SetFieldWidth(0).
 		SetChangedFunc(func(text string) {
 			ha.searchQuery = text
 			ha.filterHistory(text)
 		})
 
-	inputBox.SetLabelColor(tcell.NewRGBColor(150, 100, 200)).
+	inputBox.SetLabelColor(accent).
 		SetFieldTextColor(tcell.NewRGBColor(255, 255, 255)).
 		SetFieldBackgroundColor(tcell.ColorDefault)
 
@@ -109,14 +182,12 @@ func (ha *HistoryApp) buildUI() {
 		ShowSecondaryText(false).
 		SetHighlightFullLine(true)
 
-	ha.list.SetMainTextColor(tcell.ColorWhite).
+	ha.list.SetMainTextColor(tcell.NewRGBColor(224, 224, 230)).
 		SetSelectedTextColor(tcell.ColorWhite).
-		SetSelectedBackgroundColor(tcell.NewRGBColor(30, 30, 30)).
-		SetShortcutColor(tcell.NewRGBColor(150, 100, 200))
+		SetSelectedBackgroundColor(tcell.NewRGBColor(38, 55, 85)).
+		SetShortcutColor(accent)
 
 	ha.list.SetBackgroundColor(tcell.ColorDefault)
-
-	ha.updateList()
 
 	ha.inputField.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
@@ -166,28 +237,38 @@ func (ha *HistoryApp) buildUI() {
 		ha.selectCommand(index)
 	})
 
-	listContainer := tview.NewFlex().
-		SetDirection(tview.FlexRow).
-		AddItem(ha.list, 0, 1, false)
+	// Top bar: left title + right live result count (no border)
+	header := tview.NewFlex().SetDirection(tview.FlexColumn)
+	header.SetBackgroundColor(tcell.NewRGBColor(30, 38, 52))
+	titleView := tview.NewTextView().
+		SetDynamicColors(true).
+		SetText(" [#60a5fa::b]$[-] [#60a5fa::b]gistory[-]")
+	countView := tview.NewTextView().
+		SetDynamicColors(true).
+		SetTextAlign(tview.AlignRight)
 
-	listFrame := tview.NewFrame(listContainer).
-		SetBorders(0, 0, 1, 0, 0, 0)
+	header.AddItem(titleView, 0, 0, false)
+	header.AddItem(nil, 0, 1, false)
+	header.AddItem(countView, 16, 0, false)
 
-	listWithBorder := tview.NewFlex().
-		SetDirection(tview.FlexRow).
-		AddItem(listFrame, 0, 1, false)
+	// Main vertical layout: top bar, input, results list
+	content := tview.NewFlex().SetDirection(tview.FlexRow)
+	content.AddItem(header, 1, 0, false)
+	content.AddItem(ha.inputField, 1, 0, true)
+	content.AddItem(ha.list, 0, 1, false)
 
-	mainContent := tview.NewFlex().
-		SetDirection(tview.FlexRow).
-		AddItem(ha.inputField, 1, 0, true).
-		AddItem(listWithBorder, 0, 1, false)
+	ha.countView = countView
 
-	flex := tview.NewFlex().
-		AddItem(nil, 1, 0, false).
-		AddItem(mainContent, 0, 1, true).
-		AddItem(nil, 1, 0, false)
+	// Populate list + set initial count in top bar
+	ha.updateList()
 
-	ha.app.SetRoot(flex, true)
+	// Small side margins
+	root := tview.NewFlex().
+		AddItem(nil, 2, 0, false).
+		AddItem(content, 0, 1, true).
+		AddItem(nil, 2, 0, false)
+
+	ha.app.SetRoot(root, true)
 	ha.app.SetFocus(ha.inputField)
 }
 
@@ -251,10 +332,16 @@ func (ha *HistoryApp) updateList() {
 		}
 
 		if len(cmd) > 200 {
-			displayCmd = displayCmd[:200] + "[grey]...[white]"
+			displayCmd = displayCmd[:200] + "[gray]…[-]"
 		}
 
 		ha.list.AddItem("  "+displayCmd, "", 0, nil)
+	}
+
+	// Update top bar result count (purely visual)
+	if ha.countView != nil {
+		count := len(ha.filtered)
+		ha.countView.SetText(fmt.Sprintf("[gray]%d results[-] ", count))
 	}
 }
 
@@ -271,9 +358,9 @@ func highlightMatches(text, pattern string) string {
 
 	for i := 0; i < len(text); i++ {
 		if patternIdx < len(lowerPattern) && lowerText[i] == lowerPattern[patternIdx] {
-			result.WriteString("[#9664c8::b]")
+			result.WriteString("[#60a5fa::bu]")
 			result.WriteByte(text[i])
-			result.WriteString("[white::-]")
+			result.WriteString("[-]")
 			patternIdx++
 		} else {
 			result.WriteByte(text[i])
